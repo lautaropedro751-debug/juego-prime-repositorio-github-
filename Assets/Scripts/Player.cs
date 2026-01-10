@@ -1,112 +1,127 @@
-using System;
-using System.Diagnostics;
-using UnityEditor.Rendering;
-using UnityEditor.Tilemaps;
-using UnityEngine;
+﻿using UnityEngine;
 
-[DebuggerDisplay("{" + nameof(DebuggerDisplayAttribute) + "(),nq}")]
 public class Player : MonoBehaviour
 {
-    //PLAYER COMPONENTS
-    private Rigidbody2D m_rigidbody2D;
-    private GatherInput m_gatherInput;
-    private Transform m_transform;
-    private Animator m_animator;
+	// COMPONENTES
+	private Rigidbody2D rb;
+	private GatherInput input;
+	private Transform tr;
+	private Animator anim;
 
-	[Header("Move And Jump settings")]
-	[SerializeField] private float speed;
-    private int direction = 1;
-    [SerializeField] private float jumpForce;
-    [SerializeField] private int extraJumps;
-    [SerializeField] private int counterExtraJumps;
-	private int idspeed;
+	[Header("Move And Jump Settings")]
+	[SerializeField] private float speed = 5f;
+	[SerializeField] private float jumpForce = 10f;
+	[SerializeField] private int extraJumps = 1;
+
+	private int counterExtraJumps;
+	private int direction = 1;
 
 	[Header("Ground Settings")]
 	[SerializeField] private Transform lFoot;
 	[SerializeField] private Transform rFoot;
-    [SerializeField] private bool isGrounded;
-    [SerializeField] private float rayLength;
-    [SerializeField] private LayerMask groundLayer;
+	[SerializeField] private float rayLength = 0.2f;
+	[SerializeField] private LayerMask groundLayer;
+
+	private bool isGrounded;
+	private bool wasGrounded;
+
+	// Animator IDs
+	private int idSpeed;
 	private int idIsGrounded;
 
-
-	// Start is called once before the first execution of Update after the MonoBehaviour is created
-	void Start()
-    {
-        m_gatherInput = GetComponent<GatherInput>();
-        m_transform = GetComponent<Transform>();
-        m_rigidbody2D = GetComponent<Rigidbody2D>();
-        m_animator = GetComponent<Animator>();
-        idspeed = Animator.StringToHash("speed");
-        idIsGrounded = Animator.StringToHash("IsGrounded");
-        lFoot = GameObject.Find("LFoot").GetComponent<Transform>();
-        rFoot = GameObject.Find("RFoot").GetComponent<Transform>();
-        counterExtraJumps = extraJumps;
-    }
-
-    private void Update()
-    {
-        SetAnimatorValues();
-    }
-
-    private void SetAnimatorValues()
-    {
-		m_animator.SetFloat(idspeed, Mathf.Abs(m_rigidbody2D.linearVelocityX));
-        m_animator.SetBool(idIsGrounded, isGrounded);
-	}
-
-    // Update is called once per frame
-    void FixedUpdate()  
-    {
-        Move();
-        jump();
-        CheckGround();
-    }
-
-    
-    private void Move()
-    {
-        Flip();
-		m_rigidbody2D.linearVelocity = new Vector2(speed * m_gatherInput.ValueX, m_rigidbody2D.linearVelocityY);
-	}
-
-    private void Flip()
-    {
-        if (m_gatherInput.ValueX * direction < 0)
-        {
-            m_transform.localScale = new Vector3(-m_transform.localScale.x, 1, 1);
-            direction *= -1;
-        }
-
-    }
-	private void jump()
+	void Awake()
 	{
-		if (m_gatherInput.IsJumping)
-        {
-            if (isGrounded)
-               m_rigidbody2D.linearVelocity = new Vector2(speed * m_gatherInput.ValueX, jumpForce);
-            if (counterExtraJumps > 0)
-            {
-				m_rigidbody2D.linearVelocity = new Vector2(speed * m_gatherInput.ValueX, jumpForce);
-                counterExtraJumps--;
-            }
-        }
-        m_gatherInput.IsJumping = false;
-	 
+		rb = GetComponent<Rigidbody2D>();
+		input = GetComponent<GatherInput>();
+		tr = transform;
+		anim = GetComponent<Animator>();
+
+		idSpeed = Animator.StringToHash("speed");
+		idIsGrounded = Animator.StringToHash("IsGrounded");
+
+		counterExtraJumps = extraJumps;
 	}
+
+	void Update()
+	{
+		UpdateAnimator();
+	}
+
+	void FixedUpdate()
+	{
+		CheckGround();
+		Move();
+		Jump();
+	}
+
+	// ───────── MOVIMIENTO ─────────
+	private void Move()
+	{
+		Flip();
+		rb.linearVelocity = new Vector2(speed * input.ValueX, rb.linearVelocityY);
+	}
+
+	private void Flip()
+	{
+		if (input.ValueX * direction < 0)
+		{
+			direction *= -1;
+			tr.localScale = new Vector3(direction, 1, 1);
+		}
+	}
+
+	// ───────── SALTO (FIX DEFINITIVO) ─────────
+	private void Jump()
+	{
+		if (!input.IsJumping)
+			return;
+
+		// Puede saltar si está en suelo o tiene saltos disponibles
+		if (isGrounded || counterExtraJumps > 0)
+		{
+			rb.linearVelocity =
+				new Vector2(rb.linearVelocityX, 0);
+
+			rb.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
+
+			// Si saltó en el aire, consume salto extra
+			if (!isGrounded)
+				counterExtraJumps--;
+		}
+
+		// Consumir input
+		input.IsJumping = false;
+	}
+
+	// ───────── GROUND CHECK ─────────
 	private void CheckGround()
 	{
-        RaycastHit2D lFootRay = Physics2D.Raycast(lFoot.position, Vector2.down, rayLength, groundLayer);
-		RaycastHit2D rFootRay = Physics2D.Raycast(rFoot.position, Vector2.down, rayLength, groundLayer);
-        if (rFootRay || rFootRay) 
-        { 
-            isGrounded = true;
-            counterExtraJumps = extraJumps;
-        }
-        else
+		RaycastHit2D leftRay =
+			Physics2D.Raycast(lFoot.position, Vector2.down, rayLength, groundLayer);
+		RaycastHit2D rightRay =
+			Physics2D.Raycast(rFoot.position, Vector2.down, rayLength, groundLayer);
+
+		isGrounded = leftRay || rightRay;
+
+		// Acaba de tocar el suelo
+		if (isGrounded && !wasGrounded)
 		{
-            isGrounded = false;
-        }
+			counterExtraJumps = extraJumps;
+		}
+
+		// Acaba de dejar el suelo (cayó sin saltar o saltó)
+		if (!isGrounded && wasGrounded)
+		{
+			counterExtraJumps = extraJumps;
+		}
+
+		wasGrounded = isGrounded;
 	}
 
+	// ───────── ANIMATOR ─────────
+	private void UpdateAnimator()
+	{
+		anim.SetFloat(idSpeed, Mathf.Abs(rb.linearVelocityX));
+		anim.SetBool(idIsGrounded, isGrounded);
+	}
 }
